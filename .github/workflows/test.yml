@@ -1,0 +1,54 @@
+name: test
+on: workflow_dispatch
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: linuxserver-playground/workflows
+          ref: main
+          path: wf
+      - run: mkdir -p s1 s2 s3 s4 && for i in 1 2 3 4; do echo "{\"v\": $i, \"run\": $GITHUB_RUN_ID}" > s$i/deploy.json; done
+      - id: u1
+        uses: actions/upload-pages-artifact@v5
+        with: {path: s1, name: a1}
+      - id: u2
+        uses: actions/upload-pages-artifact@v5
+        with: {path: s2, name: a2}
+      - id: u3
+        uses: actions/upload-pages-artifact@v5
+        with: {path: s3, name: a3}
+      - id: u4
+        uses: actions/upload-pages-artifact@v5
+        with: {path: s4, name: a4}
+      - name: try versions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          A1: ${{ steps.u1.outputs.artifact_id }}
+          A2: ${{ steps.u2.outputs.artifact_id }}
+          A3: ${{ steps.u3.outputs.artifact_id }}
+          A4: ${{ steps.u4.outputs.artifact_id }}
+        run: |
+          tree=$(gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA --jq .commit.tree.sha)
+          dangling=$(gh api repos/$GITHUB_REPOSITORY/git/commits -f message="pages deploy $GITHUB_RUN_ID" -f tree=$tree -f "parents[]=$GITHUB_SHA" --jq .sha)
+          echo "dangling commit $dangling"
+          cd wf/scripts
+          for spec in "1:$GITHUB_SHA" "2:$GITHUB_SHA-$GITHUB_RUN_ID-1" "3:test-$GITHUB_RUN_ID" "4:$dangling"; do
+            i=${spec%%:*}; v=${spec#*:}; a=A$i
+            echo "=== variant $i version $v"
+            python3 -u -c "
+          import sys, deploy_pages as d
+          d.build_version = lambda env, attempt: sys.argv[2]
+          import urllib.error
+          try: print('RESULT', d.deploy(int(sys.argv[1]), 1, __import__('os').environ.copy()))
+          except urllib.error.HTTPError as e: print('RESULT HTTP', e.code, e.read()[:300])
+          " "${!a}" "$v" || true
+            for t in $(seq 1 12); do b=$(curl -s "https://linuxserver-playground.github.io/pages-deploy-test/deploy.json?x=$RANDOM$t" || true); if grep -q "\"v\": $i," <<<"$b"; then echo "SERVED variant $i after $((t*10))s"; break; fi; sleep 10; done
+            echo "served now: $b"
+          done
