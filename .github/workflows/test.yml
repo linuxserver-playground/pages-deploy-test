@@ -14,7 +14,9 @@ jobs:
           repository: linuxserver-playground/workflows
           ref: main
           path: wf
-      - run: mkdir -p s1 s2 s3 s4 && for i in 1 2 3 4; do echo "{\"v\": $i, \"run\": $GITHUB_RUN_ID}" > s$i/deploy.json; done
+      - run: |
+          mkdir -p s1 s2 s3 s4
+          for i in 1 2 3 4; do printf '{"v": %s, "run": %s}\n' "$i" "$GITHUB_RUN_ID" > "s$i/deploy.json"; done
       - id: u1
         uses: actions/upload-pages-artifact@v5
         with: {path: s1, name: a1}
